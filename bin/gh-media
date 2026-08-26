@@ -1,0 +1,170 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh
+setopt ERR_EXIT NO_UNSET PIPE_FAIL
+
+usage() {
+  print -u2 -- "Usage: gh-media FILE.{webp,mp4,mov,webm} [ALT_TEXT]"
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    print -u2 -- "gh-media: required command not found: $1"
+    exit 1
+  fi
+}
+
+copy_to_clipboard() {
+  if command -v wl-copy >/dev/null 2>&1; then
+    print -rn -- "$1" | wl-copy
+  elif command -v xclip >/dev/null 2>&1; then
+    print -rn -- "$1" | xclip -selection clipboard
+  elif command -v pbcopy >/dev/null 2>&1; then
+    print -rn -- "$1" | pbcopy
+  else
+    return 1
+  fi
+}
+
+asset_url() {
+  print -r -- "https://github.com/$repo/releases/download/$release_tag/$1"
+}
+
+print_delete_command() {
+  print -r -- "gh release delete-asset ${(q)release_tag} ${(q)1} --repo ${(q)repo} --yes"
+}
+
+if (( $# < 1 || $# > 2 )); then
+  usage
+  exit 2
+fi
+
+require_command gh
+require_command file
+require_command sed
+
+readonly source_path="${1:A}"
+readonly alt_text="${2:-${source_path:t:r}}"
+
+if [[ ! -f "$source_path" ]]; then
+  print -u2 -- "gh-media: file not found: $source_path"
+  exit 1
+fi
+
+readonly mime_type="$(file -b --mime-type "$source_path")"
+case "$mime_type" in
+  image/webp)
+    readonly media_kind="image"
+    readonly source_extension="webp"
+    ;;
+  video/mp4)
+    readonly media_kind="video"
+    readonly source_extension="mp4"
+    ;;
+  video/quicktime)
+    readonly media_kind="video"
+    readonly source_extension="mov"
+    ;;
+  video/webm)
+    readonly media_kind="video"
+    readonly source_extension="webm"
+    ;;
+  *)
+    print -u2 -- "gh-media: expected a WebP, MP4, MOV, or WebM file, got $mime_type"
+    exit 1
+    ;;
+esac
+
+repo="${GH_MEDIA_REPO:-}"
+if [[ -z "$repo" ]]; then
+  readonly owner="$(gh api user --jq .login)"
+  repo="$owner/media"
+fi
+readonly repo
+readonly release_tag="${GH_MEDIA_RELEASE:-attachments}"
+
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum="$(sha256sum "$source_path")"
+elif command -v shasum >/dev/null 2>&1; then
+  checksum="$(shasum -a 256 "$source_path")"
+else
+  print -u2 -- "gh-media: required command not found: sha256sum or shasum"
+  exit 1
+fi
+checksum="${checksum%% *}"
+readonly short_checksum="${checksum[1,10]}"
+
+readonly timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+slug="$(print -r -- "${source_path:t:r}" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+[[ -n "$slug" ]] || slug="media"
+
+readonly temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/gh-media.XXXXXXXX")"
+trap 'rm -rf -- "$temp_dir"' EXIT
+
+typeset -a asset_names upload_paths
+
+if [[ "$media_kind" == "image" ]]; then
+  readonly media_asset_name="${timestamp}-${slug}-${short_checksum}.webp"
+  readonly media_upload_path="$temp_dir/$media_asset_name"
+  cp "$source_path" "$media_upload_path"
+
+  asset_names=("$media_asset_name")
+  upload_paths=("$media_upload_path")
+  readonly markdown="![$(print -r -- "$alt_text" | tr ']' ')')]($(asset_url "$media_asset_name"))"
+else
+  require_command ffmpeg
+
+  readonly media_asset_name="${timestamp}-${slug}-${short_checksum}.${source_extension}"
+  readonly preview_asset_name="${timestamp}-${slug}-${short_checksum}-preview.webp"
+  readonly media_upload_path="$temp_dir/$media_asset_name"
+  readonly preview_upload_path="$temp_dir/$preview_asset_name"
+  cp "$source_path" "$media_upload_path"
+
+  print -r -- "Creating a full-length animated WebP preview..."
+  ffmpeg \
+    -hide_banner \
+    -loglevel error \
+    -i "$source_path" \
+    -map 0:v:0 \
+    -vf "fps=10,scale=w='min(800,iw)':h=-2:flags=lanczos" \
+    -an \
+    -loop 0 \
+    -c:v libwebp_anim \
+    -quality 65 \
+    -compression_level 4 \
+    "$preview_upload_path"
+
+  asset_names=("$media_asset_name" "$preview_asset_name")
+  upload_paths=("$media_upload_path" "$preview_upload_path")
+
+  readonly media_url="$(asset_url "$media_asset_name")"
+  readonly preview_url="$(asset_url "$preview_asset_name")"
+  readonly safe_alt="$(print -r -- "$alt_text" | tr ']' ')')"
+  readonly markdown="[![$safe_alt]($preview_url)]($media_url)
+
+[Download the full video]($media_url)"
+fi
+
+gh release upload "$release_tag" "${upload_paths[@]}" --repo "$repo" --clobber
+
+print -r -- "Uploaded:"
+for asset_name in "${asset_names[@]}"; do
+  print -r -- "  $asset_name"
+done
+
+if copy_to_clipboard "$markdown"; then
+  print -r -- "Copied Markdown to the clipboard:"
+else
+  print -u2 -- "gh-media: no supported clipboard command found"
+fi
+print -r -- "$markdown"
+
+print -r -- ""
+if (( ${#asset_names} == 1 )); then
+  print -r -- "Delete the uploaded asset with:"
+else
+  print -r -- "Delete the uploaded assets with:"
+fi
+for asset_name in "${asset_names[@]}"; do
+  print_delete_command "$asset_name"
+done
