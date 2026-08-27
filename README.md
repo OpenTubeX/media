@@ -149,11 +149,12 @@ as soon as someone opens the issue. The original video keeps its full quality
 and audio, but GitHub downloads it instead of displaying an inline player.
 
 This works around the limits for media attached through the issue composer.
-The script starts another release when it reaches GitHub's 1,000-assets-per-
-release limit, but repository usage limits still apply. See GitHub's
+Each release asset must be smaller than 2 GiB. A release can contain up to
+1,000 assets, so the script starts a numbered continuation release when needed.
+GitHub does not limit a release's total size or bandwidth usage. See GitHub's
 documentation on
 [attaching files](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files)
-and [linking to release assets](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases).
+and [release storage and bandwidth quotas](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases#storage-and-bandwidth-quotas).
 
 ## License
 
