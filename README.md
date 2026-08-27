@@ -68,6 +68,11 @@ path=("$HOME/.local/bin" $path)
 The script uses the account currently authenticated in `gh` and assumes the
 repository is named `media`.
 
+GitHub allows at most 1,000 assets in one release. When the configured release
+does not have enough room for an upload, the script creates numbered releases
+such as `attachments-2` and `attachments-3`. A video and its preview stay
+together in the same release.
+
 If you use a different repository name, add its full name to `~/.zshrc`:
 
 ```zsh
@@ -115,8 +120,9 @@ The original file is never changed.
 
 ## Manage uploads
 
-Uploaded files appear under the repository's `attachments` release. You can
-also inspect them from the terminal:
+Uploaded files appear under the repository's `attachments` release and any
+numbered continuation releases. You can inspect the first release from the
+terminal:
 
 ```zsh
 repo="${GH_MEDIA_REPO:-$(gh api user --jq .login)/media}"
@@ -142,9 +148,10 @@ Full-length animated WebPs can be much larger than their source videos and load
 as soon as someone opens the issue. The original video keeps its full quality
 and audio, but GitHub downloads it instead of displaying an inline player.
 
-This works around the limits for media attached through the issue composer. It
-does not remove GitHub's limits for release assets or repository usage. See
-GitHub's documentation on
+This works around the limits for media attached through the issue composer.
+The script starts another release when it reaches GitHub's 1,000-assets-per-
+release limit, but repository usage limits still apply. See GitHub's
+documentation on
 [attaching files](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files)
 and [linking to release assets](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases).
 

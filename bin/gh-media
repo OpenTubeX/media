@@ -26,6 +26,80 @@ copy_to_clipboard() {
   fi
 }
 
+release_asset_count() {
+  local tag="$1"
+  local release_id page_counts page_count
+  local total=0
+
+  if ! release_id="$(gh api "repos/$repo/releases/tags/$tag" --jq .id 2>/dev/null)"; then
+    return 1
+  fi
+
+  if ! page_counts="$(
+    gh api "repos/$repo/releases/$release_id/assets?per_page=100" \
+      --paginate \
+      --jq 'length'
+  )"; then
+    return 2
+  fi
+
+  for page_count in ${(f)page_counts}; do
+    if [[ "$page_count" != <-> ]]; then
+      print -u2 -- "gh-media: could not count assets in release $tag"
+      return 2
+    fi
+    total=$((total + page_count))
+  done
+
+  print -r -- "$total"
+}
+
+select_release_tag() {
+  local required_slots="$1"
+  local release_number=1
+  local candidate="$base_release_tag"
+  local asset_count lookup_status
+
+  while true; do
+    if asset_count="$(release_asset_count "$candidate")"; then
+      if (( asset_count + required_slots <= max_release_assets )); then
+        print -r -- "$candidate"
+        return
+      fi
+
+      release_number=$((release_number + 1))
+      candidate="${base_release_tag}-${release_number}"
+      continue
+    else
+      lookup_status=$?
+    fi
+
+    if (( lookup_status == 2 )); then
+      return 1
+    fi
+
+    if (( release_number == 1 )); then
+      print -u2 -- "gh-media: release not found: $base_release_tag"
+      return 1
+    fi
+
+    print -u2 -- "Release $candidate does not exist. Creating it..."
+    if gh release create "$candidate" \
+      --repo "$repo" \
+      --title "$candidate" \
+      --notes "Continues $base_release_tag because the earlier releases do not have enough asset slots." \
+      --latest=false; then
+      continue
+    fi
+
+    # Another upload may have created the release after our lookup.
+    if release_asset_count "$candidate" >/dev/null; then
+      continue
+    fi
+    return 1
+  done
+}
+
 asset_url() {
   print -r -- "https://github.com/$repo/releases/download/$release_tag/$1"
 }
@@ -81,7 +155,8 @@ if [[ -z "$repo" ]]; then
   repo="$owner/media"
 fi
 readonly repo
-readonly release_tag="${GH_MEDIA_RELEASE:-attachments}"
+readonly base_release_tag="${GH_MEDIA_RELEASE:-attachments}"
+readonly max_release_assets=1000
 
 if command -v sha256sum >/dev/null 2>&1; then
   checksum="$(sha256sum "$source_path")"
@@ -110,7 +185,6 @@ if [[ "$media_kind" == "image" ]]; then
 
   asset_names=("$media_asset_name")
   upload_paths=("$media_upload_path")
-  readonly markdown="![$(print -r -- "$alt_text" | tr ']' ')')]($(asset_url "$media_asset_name"))"
 else
   require_command ffmpeg
 
@@ -136,10 +210,17 @@ else
 
   asset_names=("$media_asset_name" "$preview_asset_name")
   upload_paths=("$media_upload_path" "$preview_upload_path")
+fi
 
+release_tag="$(select_release_tag "${#asset_names}")"
+readonly release_tag
+readonly safe_alt="$(print -r -- "$alt_text" | tr ']' ')')"
+
+if [[ "$media_kind" == "image" ]]; then
+  readonly markdown="![$safe_alt]($(asset_url "$media_asset_name"))"
+else
   readonly media_url="$(asset_url "$media_asset_name")"
   readonly preview_url="$(asset_url "$preview_asset_name")"
-  readonly safe_alt="$(print -r -- "$alt_text" | tr ']' ')')"
   readonly markdown="[![$safe_alt]($preview_url)]($media_url)
 
 [Download the full video]($media_url)"
