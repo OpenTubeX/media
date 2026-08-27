@@ -151,8 +151,12 @@ and audio, but GitHub downloads it instead of displaying an inline player.
 This works around the limits for media attached through the issue composer.
 Each release asset must be smaller than 2 GiB. A release can contain up to
 1,000 assets, so the script starts a numbered continuation release when needed.
-GitHub does not limit a release's total size or bandwidth usage. See GitHub's
-documentation on
+GitHub documents no fixed limit on a release's total size or bandwidth usage.
+Its [Acceptable Use Policies](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies#9-excessive-bandwidth-use)
+still allow GitHub to throttle file hosting or suspend accounts for bandwidth
+usage that is significantly excessive compared with similar users. Use this
+tool for media embedded in GitHub issues, pull requests, and discussions, not
+as a general-purpose CDN. See GitHub's documentation on
 [attaching files](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files)
 and [release storage and bandwidth quotas](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases#storage-and-bandwidth-quotas).
 
